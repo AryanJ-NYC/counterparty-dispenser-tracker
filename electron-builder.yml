@@ -1,0 +1,12 @@
+appId: com.aryanjabbari.dispenser-tracker
+productName: Dispenser Tracker
+copyright: Copyright © 2022 Aryan Jabbari
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - from: .
+    filter:
+      - package.json
+      - app
+publish: null
