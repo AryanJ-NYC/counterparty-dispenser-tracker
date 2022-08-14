@@ -1,11 +1,15 @@
-import React, { PropsWithChildren, useCallback } from 'react';
-import Head from 'next/head';
-import { useDispenserAddresses } from '../modules/lib/stores/dispenserAddresses';
-import { ErrorMessage, Field, Form, Formik } from 'formik';
-import { validate } from 'bitcoin-address-validation';
+import { Switch } from '@headlessui/react';
 import { useQuery } from '@tanstack/react-query';
-import { Counterparty } from '../modules/lib/Counterparty';
+import { validate } from 'bitcoin-address-validation';
+import clsx from 'clsx';
+import { Dispenser } from 'counterparty-node-client';
 import { shell } from 'electron';
+import { ErrorMessage, Field, Form, Formik } from 'formik';
+import Head from 'next/head';
+import React, { PropsWithChildren, useCallback } from 'react';
+import { Counterparty } from '../modules/lib/Counterparty';
+import { useDispenserAddresses } from '../modules/lib/stores/dispenserAddresses';
+import { useShowClosedDispensers } from '../modules/lib/stores/showClosedAddresses';
 
 const cp = new Counterparty();
 
@@ -24,12 +28,18 @@ function Home() {
       <Head>
         <title>Dispenser Tracker</title>
       </Head>
+      <div className="flex justify-end py-4 px-8">
+        <div className="flex flex-col">
+          <p className="text-center text-sm">Closed Dispensers</p>
+          <ClosedDispenserSwitch />
+        </div>
+      </div>
       <div className="flex flex-col gap-y-32 p-8">
         {!!dispenserAddresses.length && (
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-8 gap-y-16">
-            {dispenserAddresses.map((d) => {
-              return <Address dispenserAddress={d} key={d} onDeleteClick={deleteAddress} />;
-            })}
+            {dispenserAddresses.map((d) => (
+              <Address dispenserAddress={d} key={d} onDeleteClick={deleteAddress} />
+            ))}
           </div>
         )}
         <div>
@@ -76,7 +86,6 @@ const Address: React.FC<{
   dispenserAddress: string;
   onDeleteClick: (d: string) => void;
 }> = ({ dispenserAddress, onDeleteClick }) => {
-  console.log('re-render');
   const { data: balance } = useQuery(
     ['balance', dispenserAddress],
     async () => {
@@ -100,41 +109,88 @@ const Address: React.FC<{
     }
   });
 
+  const [showClosedDispensers] = useShowClosedDispensers();
+
+  const dispensersToDisplay = dispensers?.filter(
+    (d) => showClosedDispensers || !isDispenserClosed(d)
+  );
+
+  if (!dispensersToDisplay?.length) return null;
+
   return (
     <div className="flex flex-col">
       <div className="flex gap-x-8">
         <div>
-          <p>{dispenserAddress}</p>
+          <button
+            className="text-pink-500 hover:text-pink-700"
+            onClick={() => shell.openExternal(`https://xchain.io/address/${dispenserAddress}`)}
+          >
+            {dispenserAddress}
+          </button>
           {typeof balance === 'number' && <p>Balance: {balance.toLocaleString()} sats</p>}
         </div>
         <button onClick={() => onDeleteClick(dispenserAddress)} type="button">
           Delete
         </button>
       </div>
-      {dispensers?.length ? (
-        dispensers.map((d) => (
-          <div
-            className="odd:bg-green-400 even:bg-green-100 flex flex-col gap-y-1 p-2"
-            key={d.tx_hash}
+      {dispensersToDisplay.map((d) => (
+        <div
+          className="odd:bg-green-400 even:bg-green-100 flex flex-col gap-y-1 p-2"
+          key={d.tx_hash}
+        >
+          <button
+            className="text-pink-500 hover:text-pink-700 text-left break-all"
+            onClick={() => shell.openExternal(`https://xchain.io/tx/${d.tx_hash}`)}
           >
+            Dispenser: {d.tx_hash}
+          </button>
+          <p>
+            Asset:{' '}
             <button
-              className="text-left break-all"
-              onClick={() => shell.openExternal(`https://xchain.io/tx/${d.tx_hash}`)}
+              className="text-pink-500 hover:text-pink-700"
+              onClick={() => shell.openExternal(`https://xchain.io/asset/${d.asset}`)}
             >
-              Dispenser: {d.tx_hash}
+              {d.asset}
             </button>
-            <p>Asset: {d.asset}</p>
-            <p>Escrowed: {d.escrow_quantity.toLocaleString()}</p>
-            <p>Remaining: {d.give_remaining.toLocaleString()}</p>
-            <p>Rate: {d.satoshirate.toLocaleString()} sats</p>
-            <p>Status: {d.status === 10 ? 'closed' : 'open'}</p>
-          </div>
-        ))
-      ) : (
-        <p>No Dispensers</p>
-      )}
+          </p>
+          <p>Escrowed: {d.escrow_quantity.toLocaleString()}</p>
+          <p>Remaining: {d.give_remaining.toLocaleString()}</p>
+          <p>Rate: {d.satoshirate.toLocaleString()} sats</p>
+          <p>Status: {isDispenserClosed(d) ? 'closed' : 'open'}</p>
+        </div>
+      ))}
     </div>
   );
+};
+
+const ClosedDispenserSwitch: React.FC = () => {
+  const [showClosedDispensers, setShowClosedDispensers] = useShowClosedDispensers();
+
+  return (
+    <div className="flex items-end text-xs space-x-4">
+      <p>Hide</p>
+      <Switch
+        checked={!showClosedDispensers}
+        onChange={() => setShowClosedDispensers(!showClosedDispensers)}
+        className={clsx(
+          showClosedDispensers ? 'bg-teal-900' : 'bg-teal-700',
+          'relative inline-flex h-6 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2  focus-visible:ring-white focus-visible:ring-opacity-75'
+        )}
+      >
+        <span
+          className={clsx(
+            showClosedDispensers && 'translate-x-6',
+            'inline-block h-5 w-5 transform rounded-full bg-white transition ease-in-out duration-200'
+          )}
+        />
+      </Switch>
+      <p>Show</p>
+    </div>
+  );
+};
+
+const isDispenserClosed = (dispenser: Pick<Dispenser, 'status'>) => {
+  return dispenser.status === 10;
 };
 
 export default Home;
